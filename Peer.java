@@ -159,7 +159,11 @@ public class Peer {
     public static void main(String[] args) {
 
         System.out.println("Hello From Chat App!");
-        // receive();
+        Thread receiveThread = new Thread(() -> {
+            System.out.println("Now Messages will be recieve automatically!");
+            receive();
+        });
+        receiveThread.start();
         System.out.println("\n");
 
         while(true) {
@@ -167,7 +171,7 @@ public class Peer {
 
             try{
                 System.out.println("1. Send a message");
-                System.out.println("2. Receive a message");
+                // System.out.println("2. Receive a message");
                 System.out.println("3. Exit");
                 System.out.print("Enter your choice: ");
                 int choice = Integer.parseInt(consoleReader.readLine());
@@ -175,9 +179,9 @@ public class Peer {
                 if (choice == 1) {
                     System.out.println("You chose to send a message!");
                     send();
-                } else if (choice == 2) {
-                    System.out.println("You chose to receive a message!");
-                    receive();
+                // } else if (choice == 2) {
+                //     System.out.println("You chose to receive a message!");
+                //     receive();
                 } else if (choice == 3) {
                     System.out.println("You chose to exit!");
                     System.exit(0);
