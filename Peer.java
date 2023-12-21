@@ -16,6 +16,27 @@ public class Peer {
 
     final static BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
 
+    private static String getPublicKeyFilePath(String nickName) throws IOException {
+        String filePath = "keyStore.txt";
+
+        BufferedReader reader = new BufferedReader(new FileReader(filePath));
+
+        String line;
+        while ( (line = reader.readLine()) != null) {
+            String[] tokens = line.split(" ");
+
+            if (tokens[0].equals(nickName)) {
+                reader.close();
+                return tokens[1];
+            }
+            
+        }
+
+        reader.close();
+        return null;
+
+    }
+
     // Encrypt a message using a public key
     private static String encrypt(String message, PublicKey publicKey) throws Exception {
         Cipher cipher = Cipher.getInstance("RSA");
