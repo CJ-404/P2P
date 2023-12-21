@@ -102,7 +102,9 @@ public class Peer {
             String senderIpAddress = getIpAddress(ipVersion);
             Socket socket = new Socket(senderIpAddress, port);
 
+            System.out.print("\033[2J\033[1;1H"); // Clear the screen
             System.out.println("You: Connected to Your Friend!");
+            System.out.println("With " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort() + "\n");
 
             // Communication logic
             BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -113,11 +115,12 @@ public class Peer {
                     while (socket.isConnected()) {
                         // You receives and displays the message
                         String receivedMessage = reader.readLine();
-                        System.out.println("Friend: " + receivedMessage);
+                        System.out.print("\nFriend: " + receivedMessage);
 
                         // Break the loop if the Sender enters "exit"
                         if ("exit".equalsIgnoreCase(receivedMessage.trim())) {
-                            System.out.println("Friend: Exiting chat...");
+                            System.out.print("\nFriend: Exiting chat...");
+                            System.err.println("Press Enter to continue...");
                             socket.close();
                             return;
                         }
@@ -134,15 +137,18 @@ public class Peer {
 
             while (socket.isConnected()) {
                 // You sends a message
-                System.out.print("You: ");
+                System.out.print("\n");
                 String message = consoleReader.readLine();
 
                 writer.write(message + "\n");
                 writer.flush();
 
+                System.out.print("\033[2K\033[1G"); // Clear the current line
+                System.out.print("You: " + message);
+
                 // Break the loop if you enters "exit"
                 if ("exit".equalsIgnoreCase(message.trim())) {
-                    System.out.println("You: Exiting chat...");
+                    System.out.print("\nYou: Exiting chat...");
                     socket.close();
                     return;
                 }
@@ -170,7 +176,9 @@ public class Peer {
             System.out.println("You are Waiting for connections...");
 
             Socket socket = serverSocket.accept(); // Wait for User B to connect
+            System.out.print("\033[2J\033[1;1H"); // Clear the screen
             System.out.println("Your: Connection established!\n");
+            System.out.println("With " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort() + "\n");
 
 
             // Communication logic
