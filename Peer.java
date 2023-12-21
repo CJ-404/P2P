@@ -8,10 +8,30 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
+
+import javax.crypto.Cipher;
 
 public class Peer {
 
     final static BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
+
+    // Encrypt a message using a public key
+    private static String encrypt(String message, PublicKey publicKey) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA");
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+        byte[] encryptedBytes = cipher.doFinal(message.getBytes());
+        return Base64.getEncoder().encodeToString(encryptedBytes);
+    }
+
+    // Decrypt a message using a private key
+    private static String decrypt(String encryptedMessage, PrivateKey privateKey) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA");
+        cipher.init(Cipher.DECRYPT_MODE, privateKey);
+        byte[] encryptedBytes = Base64.getDecoder().decode(encryptedMessage);
+        byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
+        return new String(decryptedBytes);
+    }
 
     // Load a private key from a file
     private static PrivateKey loadPrivateKeyFromFile(String filePath) throws Exception {
