@@ -115,11 +115,11 @@ public class Peer {
                     while (socket.isConnected()) {
                         // You receives and displays the message
                         String receivedMessage = reader.readLine();
-                        System.out.print("\nFriend: " + receivedMessage);
+                        System.out.println("Friend: " + receivedMessage);
 
                         // Break the loop if the Sender enters "exit"
                         if ("exit".equalsIgnoreCase(receivedMessage.trim())) {
-                            System.out.print("\nFriend: Exiting chat...");
+                            System.out.println("Friend: Exiting chat...");
                             System.err.println("Press Enter to continue...");
                             socket.close();
                             return;
@@ -137,18 +137,17 @@ public class Peer {
 
             while (socket.isConnected()) {
                 // You sends a message
-                System.out.print("\n");
                 String message = consoleReader.readLine();
 
                 writer.write(message + "\n");
                 writer.flush();
 
-                System.out.print("\033[2K\033[1G"); // Clear the current line
-                System.out.print("You: " + message);
+                System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
+                System.out.println("You: " + message);
 
                 // Break the loop if you enters "exit"
                 if ("exit".equalsIgnoreCase(message.trim())) {
-                    System.out.print("\nYou: Exiting chat...");
+                    System.out.println("You: Exiting chat...");
                     socket.close();
                     return;
                 }
@@ -177,7 +176,7 @@ public class Peer {
 
             Socket socket = serverSocket.accept(); // Wait for User B to connect
             System.out.print("\033[2J\033[1;1H"); // Clear the screen
-            System.out.println("Your: Connection established!\n");
+            System.out.println("Your: Connection established!");
             System.out.println("With " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort() + "\n");
 
 
@@ -196,6 +195,7 @@ public class Peer {
                         // Break the loop if the sender enters "exit"
                         if ("exit".equalsIgnoreCase(receivedMessage.trim())) {
                             System.out.println("Friend: Exiting chat...");
+                            System.out.println("Press Enter to continue...");
                             socket.close();
                             serverSocket.close();
                             return;
@@ -213,10 +213,12 @@ public class Peer {
 
             while (socket.isConnected()) {
                 // Sender sends a message
-                System.out.print("You: ");
                 String message = consoleReader.readLine();
                 writer.write(message + "\n");
                 writer.flush();
+
+                System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
+                System.out.println("You: " + message);
 
                 // Break the loop if the user enters "exit"
                 if ("exit".equalsIgnoreCase(message.trim())) {
