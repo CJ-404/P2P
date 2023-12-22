@@ -14,6 +14,7 @@ import javax.crypto.Cipher;
 
 public class Peer {
 
+    private static String nickName="user"+(int)(Math.random()*1000);
     final static BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
 
     private static String getPublicKeyFilePath(String nickName) throws IOException {
@@ -111,18 +112,33 @@ public class Peer {
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
 
             Thread receiveThread = new Thread(() -> {
+                int receiveMode = 0; // 0 for waiting for identity
+                String senderNickName = "Unknown";
                 try {
                     while (socket.isConnected()) {
-                        // You receives and displays the message
-                        String receivedMessage = reader.readLine();
-                        System.out.println("Friend: " + receivedMessage);
+                        if(receiveMode == 0)
+                        {
+                            senderNickName = reader.readLine();
+                            // String publicKeyFilePath = getPublicKeyFilePath(senderNickName);
+                            // PublicKey publicKey = loadPublicKeyFromFile(publicKeyFilePath);
+                            // String encryptedMessage = reader.readLine();
+                            // String decryptedMessage = decrypt(encryptedMessage, publicKey);
+                            // System.out.println("Friend: " + decryptedMessage);
+                            receiveMode = 1;
+                        }
+                        else if(receiveMode == 1)
+                        {
+                            // You receives and displays the message
+                            String receivedMessage = reader.readLine();
+                            System.out.println(senderNickName+": " + receivedMessage);
 
-                        // Break the loop if the Sender enters "exit"
-                        if ("exit".equalsIgnoreCase(receivedMessage.trim())) {
-                            System.out.println("Friend: Exiting chat...");
-                            System.err.println("Press Enter to continue...");
-                            socket.close();
-                            return;
+                            // Break the loop if the Sender enters "exit"
+                            if ("exit".equalsIgnoreCase(receivedMessage.trim())) {
+                                System.out.println(senderNickName+": Exiting chat...");
+                                System.err.println("Press Enter to continue...");
+                                socket.close();
+                                return;
+                            }
                         }
                     }
                 } catch (SocketException e) {
@@ -135,21 +151,38 @@ public class Peer {
 
             receiveThread.start();
 
+            int sendMode = 0; // 0 for give identity using nickname
+            // 1 for started chatting
             while (socket.isConnected()) {
-                // You sends a message
-                String message = consoleReader.readLine();
+                
+                if(sendMode == 0)
+                {
+                    writer.write(nickName + "\n");
+                    writer.flush();
+                    sendMode = 1;
+                }
+                else if(sendMode == 1)
+                {
+                    // You sends a message
+                    String message = consoleReader.readLine();
 
-                writer.write(message + "\n");
-                writer.flush();
+                    writer.write(message + "\n");
+                    writer.flush();
 
-                System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
-                System.out.println("You: " + message);
+                    System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
+                    System.out.println("You: " + message);
 
-                // Break the loop if you enters "exit"
-                if ("exit".equalsIgnoreCase(message.trim())) {
-                    System.out.println("You: Exiting chat...");
-                    socket.close();
-                    return;
+                    // Break the loop if you enters "exit"
+                    if ("exit".equalsIgnoreCase(message.trim())) {
+                        System.out.println("You: Exiting chat...");
+                        socket.close();
+                        return;
+                    }
+                }
+                else
+                {
+                    System.out.println("Invalid send mode!");
+                    System.exit(0);
                 }
             }
         } catch (SocketException e) {
@@ -177,7 +210,7 @@ public class Peer {
             Socket socket = serverSocket.accept(); // Wait for User B to connect
             System.out.print("\033[2J\033[1;1H"); // Clear the screen
             System.out.println("Your: Connection established!");
-            System.out.println("With " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort() + "\n");
+            System.out.println("With " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort()+ "\n");
 
 
             // Communication logic
@@ -186,19 +219,40 @@ public class Peer {
             BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
 
             Thread receiverThread = new Thread(() -> {
+                int receiveMode = 0; // 0 for waiting for identity
+                String senderNickName = "Unknown";
+                // 1 for started chatting
                 try {
                     while (socket.isConnected()) {
-                        // Receiver receives and displays the message
-                        String receivedMessage = reader.readLine();
-                        System.out.println("Friend: " + receivedMessage);
+                        if(receiveMode == 0)
+                        {
+                            senderNickName = reader.readLine();
+                            // String publicKeyFilePath = getPublicKeyFilePath(senderNickName);
+                            // PublicKey publicKey = loadPublicKeyFromFile(publicKeyFilePath);
+                            // String encryptedMessage = reader.readLine();
+                            // String decryptedMessage = decrypt(encryptedMessage, publicKey);
+                            // System.out.println("Friend: " + decryptedMessage);
+                            receiveMode = 1;
+                        }
+                        else if(receiveMode == 1)
+                        {
+                            // Receiver receives and displays the message
+                            String receivedMessage = reader.readLine();
+                            System.out.println(senderNickName+": " + receivedMessage);
 
-                        // Break the loop if the sender enters "exit"
-                        if ("exit".equalsIgnoreCase(receivedMessage.trim())) {
-                            System.out.println("Friend: Exiting chat...");
-                            System.out.println("Press Enter to continue...");
-                            socket.close();
-                            serverSocket.close();
-                            return;
+                            // Break the loop if the sender enters "exit"
+                            if ("exit".equalsIgnoreCase(receivedMessage.trim())) {
+                                System.out.println(senderNickName+": Exiting chat...");
+                                System.out.println("Press Enter to continue...");
+                                socket.close();
+                                serverSocket.close();
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            System.out.println("Invalid receive mode!");
+                            System.exit(0);
                         }
                     }
                 } catch (SocketException e) {
@@ -211,21 +265,37 @@ public class Peer {
 
             receiverThread.start();
 
+            int sendMode = 0; // 0 for waiting for identity
+            // 1 for started chatting
             while (socket.isConnected()) {
-                // Sender sends a message
-                String message = consoleReader.readLine();
-                writer.write(message + "\n");
-                writer.flush();
+                if(sendMode == 0)
+                {
+                    writer.write(nickName + "\n");
+                    writer.flush();
+                    sendMode = 1;
+                }
+                else if(sendMode == 1)
+                {
+                    // Sender sends a message
+                    String message = consoleReader.readLine();
+                    writer.write(message + "\n");
+                    writer.flush();
 
-                System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
-                System.out.println("You: " + message);
+                    System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
+                    System.out.println("You: " + message);
 
-                // Break the loop if the user enters "exit"
-                if ("exit".equalsIgnoreCase(message.trim())) {
-                    System.out.println("You: Exiting chat...");
-                    socket.close();
-                    serverSocket.close();
-                    return;
+                    // Break the loop if the user enters "exit"
+                    if ("exit".equalsIgnoreCase(message.trim())) {
+                        System.out.println("You: Exiting chat...");
+                        socket.close();
+                        serverSocket.close();
+                        return;
+                    }
+                }
+                else
+                {
+                    System.out.println("Invalid send mode!");
+                    System.exit(0);
                 }
             }
         } catch (SocketException e) {
@@ -238,7 +308,20 @@ public class Peer {
     public static void main(String[] args) {
 
         System.out.println("Hello From Chat App!");
-        // receive();
+        System.out.println("Your Nickname is " + nickName);
+        System.out.println("Need to change your nickname? [Y/N]");
+        try{
+            String answer = consoleReader.readLine();
+            if(answer.equalsIgnoreCase("Y")){
+                System.out.println("Enter your new nickname: ");
+                nickName = consoleReader.readLine();
+            }
+            
+        }catch (IOException e) {
+            e.printStackTrace();   
+        }
+        System.out.print("\033[2J\033[1;1H"); // Clear the screen
+        System.out.println("Hello " + nickName + "!");
         System.out.println("\n");
 
         while(true) {
