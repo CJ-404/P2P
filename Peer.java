@@ -1,24 +1,32 @@
 import java.io.*;
 import java.net.*;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.security.Key;
 import java.security.KeyFactory;
+import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.Signature;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 
 import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 
 public class Peer {
 
     private static String nickName="user"+(int)(Math.random()*1000);
-    private static PublicKey publicKey;
+    // private static PublicKey publicKey;
     private static PrivateKey privateKey;
     private static volatile PublicKey senderPublicKey = null;
+    private static volatile SecretKey symmetricKey = null;
+    private static volatile int messageState = 0;
+    private static volatile String senderNickName = "Unknown";
     final static BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
 
     private static String getPublicKeyFilePath(String nickName) throws IOException {
@@ -40,23 +48,6 @@ public class Peer {
         reader.close();
         throw new IOException("No public key found for this nickname!");
 
-    }
-
-    // Encrypt a message using a private key
-    private static String encrypt(String message, Key privateKey) throws Exception {
-        Cipher cipher = Cipher.getInstance("RSA");
-        cipher.init(Cipher.ENCRYPT_MODE, privateKey);
-        byte[] encryptedBytes = cipher.doFinal(message.getBytes());
-        return Base64.getEncoder().encodeToString(encryptedBytes);
-    }
-
-    // Decrypt a message using a public key
-    private static String decrypt(String encryptedMessage, Key publicKey) throws Exception {
-        Cipher cipher = Cipher.getInstance("RSA");
-        cipher.init(Cipher.DECRYPT_MODE, publicKey);
-        byte[] encryptedBytes = Base64.getDecoder().decode(encryptedMessage);
-        byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
-        return new String(decryptedBytes);
     }
 
     // Load a private key from a file
@@ -97,6 +88,54 @@ public class Peer {
         return keyFactory.generatePublic(keySpec);
     }
 
+    private static SecretKey generateSymmetricKey() throws NoSuchAlgorithmException {
+        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+        keyGenerator.init(256);
+        return keyGenerator.generateKey();
+    }
+
+    private static String encryptData(SecretKey symmetricKey, String data) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES");
+        cipher.init(Cipher.ENCRYPT_MODE, symmetricKey);
+        byte[] encryptedData = cipher.doFinal(data.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(encryptedData);
+    }
+
+    private static String decryptData(SecretKey symmetricKey, String encryptedData) throws Exception {
+        Cipher cipher = Cipher.getInstance("AES");
+        cipher.init(Cipher.DECRYPT_MODE, symmetricKey);
+        byte[] decodedData = Base64.getDecoder().decode(encryptedData);
+        byte[] decryptedBytes = cipher.doFinal(decodedData);
+        return new String(decryptedBytes, StandardCharsets.UTF_8);
+    }
+
+    private static byte[] encryptSymmetricKey(SecretKey symmetricKey, PublicKey publicKey) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA");
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+        return cipher.doFinal(symmetricKey.getEncoded());
+    }
+
+    private static SecretKey decryptSymmetricKey(byte[] encryptedSymmetricKey, PrivateKey privateKey) throws Exception {
+        Cipher cipher = Cipher.getInstance("RSA");
+        cipher.init(Cipher.DECRYPT_MODE, privateKey);
+        byte[] decryptedBytes = cipher.doFinal(encryptedSymmetricKey);
+        return new SecretKeySpec(decryptedBytes, "AES");
+    }
+
+    private static byte[] sign(byte[] data, PrivateKey privateKey) throws Exception {
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initSign(privateKey);
+        signature.update(data);
+        return signature.sign();
+    }
+
+    private static boolean verify(byte[] data, byte[] signature, PublicKey publicKey) throws Exception {
+        Signature verifier = Signature.getInstance("SHA256withRSA");
+        verifier.initVerify(publicKey);
+        verifier.update(data);
+        return verifier.verify(signature);
+    }
+
     private static String getIpAddress(int ipVersion) {
         String ipAddress = "";
         try{
@@ -135,59 +174,57 @@ public class Peer {
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
 
             Thread receiveThread = new Thread(() -> {
-                int receiveMode = 0; // 0 for waiting for identity
-                // 1 for check the identity
-                // 2 for started chatting
-                String senderNickName = "Unknown";
+                // 0 for give the claiming identity
+                // 1 for get the claiming identity and get the trusted public key for that identity
+                // 2 for retrieve signed encrypted symmetric key, verify the signature using senders public key and store the symmetric key
+                // 3 for confirm the identity by sending encrypted message using symmetric key
+                // 4 for started chatting
+                // 5 for identity not confirmed
                 try {
                     while (socket.isConnected()) {
-                        if(receiveMode == 0)
+                        if(messageState == 1)
                         {
+                            // get sender's nickname
                             senderNickName = reader.readLine();
-                            receiveMode = 1;
-                        }
-                        else if(receiveMode == 1)
-                        {
-                            String encryptedMessage = reader.readLine();
-                            
-                            // get sender's public key
+                            // get associated trusted public key for the nickname
                             senderPublicKey = loadPublicKeyFromFile(getPublicKeyFilePath(senderNickName));
+                            messageState = 2;
+                        }
+                        else if(messageState == 2)
+                        {
+                            // retrieve signed encrypted symmetric key
+                            DataInputStream dis = new DataInputStream(socket.getInputStream());
+                            int encryptedSymmetricKeyLength = dis.readInt();
+                            byte[] encryptedSymmetricKey = new byte[encryptedSymmetricKeyLength];
+                            dis.readFully(encryptedSymmetricKey, 0, encryptedSymmetricKeyLength);
 
-                            // Check the identity
-                            String decryptedMessage = decrypt(encryptedMessage, senderPublicKey);
+                            int signatureLength = dis.readInt();
+                            byte[] signature = new byte[signatureLength];
+                            dis.readFully(signature, 0, signatureLength);
 
-                            if(decryptedMessage.equals(senderNickName))
+                            // verify the signature using senders public key
+                            boolean isVerified = verify(encryptedSymmetricKey, signature, senderPublicKey);
+                            if(isVerified)
                             {
-                                // Identity confirmed
-                                // writer.write("Identity Confirmed" + "\n");
-                                // writer.flush();
-                                System.out.println("Identity Confirmed of " + senderNickName + "!");
-                                System.out.println("Encrypted");
-                                System.out.println("---------------------------------------\n");
-                                receiveMode = 2;
+                                // store the symmetric key
+                                symmetricKey = decryptSymmetricKey(encryptedSymmetricKey, privateKey);
+                                messageState = 3;
                             }
                             else
                             {
                                 // Identity not confirmed
-                                // writer.write("Identity Not Confirmed" + "\n");
-                                // writer.flush();
-                                socket.close();
-                                System.out.println("Identity Not Confirmed");
-                                System.out.println("Press Enter to continue...");
-                                System.exit(0);
+                                messageState = 5;
+                                return;
                             }
-                            
                         }
-                        else if(receiveMode == 2)
+                        else if(messageState == 4)
                         {
                             // You receives and displays the message
                             String receivedEncryptedMessage = reader.readLine();
-                            // System.out.println("REncrypted Message: " + receivedEncryptedMessage);
-                            //decrypt the message using users private key
-                            receivedEncryptedMessage = decrypt(receivedEncryptedMessage, privateKey);
-                            // System.out.println("Encrypted Message: " + receivedMessage);
-                            //decrypt the message using senders public key
-                            String receivedMessage = decrypt(receivedEncryptedMessage, senderPublicKey);
+                            // decrypt the message using symmetric key
+                            String receivedMessage = decryptData(symmetricKey, receivedEncryptedMessage);
+
+                            // display the message
                             System.out.println(senderNickName+": " + receivedMessage);
 
                             // Break the loop if the Sender enters "exit"
@@ -211,56 +248,54 @@ public class Peer {
 
             receiveThread.start();
 
-            int sendMode = 0; // 0 for give identity using nickname
-            // 1 for confirm the identity using encrypted message
-            // 2 for started chatting
             while (socket.isConnected()) {
                 
-                if(sendMode == 0)
+                if(messageState == 0)
                 {
                     writer.write(nickName + "\n");
                     writer.flush();
-                    sendMode = 1;
+                    messageState = 1;
                 }
-                else if(sendMode == 1)
+                else if(messageState == 3)
                 {
-                    // Confirm the identity
-                    String confirmMessage = nickName;
-                    writer.write(encrypt(confirmMessage, privateKey) + "\n");
+                    // You sends a message
+                    String message = "VERIFIED";
+                    // encrypt the message using symmetric key
+                    String encryptedMessage = encryptData(symmetricKey, message);
+                    writer.write(encryptedMessage + "\n");
                     writer.flush();
-                    sendMode = 2;
+                    System.out.println("Identity Confirmed of " + senderNickName + "!");
+                    System.out.println("End to End Encrypted");
+                    System.out.println("---------------------------------------\n");
+                    messageState = 4;
                 }
-                else if(sendMode == 2)
+                else if(messageState == 4)
                 {
-                    // wait for confirm other user identity
-                    if(senderPublicKey != null)
-                    {
-                        // You sends a message
-                        String message = consoleReader.readLine();
-                        //encrypt the message using users private key
-                        String encryptedMessage = encrypt(message, privateKey);
-                        //encrypt the message using senders public key
-                        PublicKey receiverPublicKey = senderPublicKey;
-                        encryptedMessage = encrypt(encryptedMessage, receiverPublicKey);
+                    // Sender sends a message
+                    String message = consoleReader.readLine();
+                    // encrypt the message using symmetric key
+                    String encryptedMessage = encryptData(symmetricKey, message);
+                    writer.write(encryptedMessage + "\n");
+                    writer.flush();
 
-                        writer.write(encryptedMessage + "\n");
-                        writer.flush();
+                    System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
+                    System.out.println("You: " + message);
 
-                        System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
-                        System.out.println("You: " + message);
-
-                        // Break the loop if you enters "exit"
-                        if ("exit".equalsIgnoreCase(message.trim())) {
-                            System.out.println("You: Exiting chat...");
-                            socket.close();
-                            return;
-                        }
+                    // Break the loop if the user enters "exit"
+                    if ("exit".equalsIgnoreCase(message.trim())) {
+                        System.out.println("You: Exiting chat...");
+                        socket.close();
+                        return;
                     }
                 }
-                else
+                else if(messageState == 5)
                 {
-                    System.out.println("Invalid send mode!");
-                    System.exit(0);
+                    // Identity not confirmed
+                    writer.write("NOT VERIFIED" + "\n");    //dump message
+                    writer.flush();
+                    socket.close();
+                    System.out.println("Identity Not Confirmed");
+                    return;
                 }
             }
         } catch (SocketException e) {
@@ -300,58 +335,54 @@ public class Peer {
             BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
 
             Thread receiverThread = new Thread(() -> {
-                int receiveMode = 0; // 0 for waiting for identity
+                // 0 for give the claiming identity
+                // 1 for get the claiming identity and get the trusted public key for that identity
+                // 2 for generate symmetric key and send encrypted Symmetric key + signed encrypted symmetric key for confirm the identity
+                // 3 for confirm the identity by encrypted message using symmetric key
+                // 4 for started chatting
                 String senderNickName = "Unknown";
-                // 1 for check the identity
-                // 2 for started chatting
                 try {
                     while (socket.isConnected()) {
-                        if(receiveMode == 0)
+                        if(messageState == 1)
                         {
+                            // get sender's nickname (claiming)
                             senderNickName = reader.readLine();
-                            receiveMode = 1;
-                        }
-                        else if(receiveMode == 1)
-                        {
-                            String encryptedMessage = reader.readLine();
-                            
-                            // get sender's public key
+                            // get the trusted public key for the claiming nickname
                             senderPublicKey = loadPublicKeyFromFile(getPublicKeyFilePath(senderNickName));
+                            messageState = 2;
+                        }
+                        else if(messageState == 3)
+                        {
+                            // You receives and displays the message
+                            String receivedEncryptedMessage = reader.readLine();
+                            
+                            //decrypt the message using symmetric key
+                            String receivedMessage = decryptData(symmetricKey, receivedEncryptedMessage);
 
-                            // Check the identity
-                            String decryptedMessage = decrypt(encryptedMessage, senderPublicKey);
-                            if(decryptedMessage.equals(senderNickName))
+                            if(receivedMessage.equals("VERIFIED"))
                             {
                                 // Identity confirmed
-                                // writer.write("Identity Confirmed" + "\n");
-                                // writer.flush();
                                 System.out.println("Identity Confirmed of " + senderNickName + "!");
-                                System.out.println("Encrypted");
+                                System.out.println("End to End Encrypted");
                                 System.out.println("---------------------------------------\n");
-                                receiveMode = 2;
+                                messageState = 4;
                             }
                             else
                             {
                                 // Identity not confirmed
-                                // writer.write("Identity Not Confirmed" + "\n");
-                                // writer.flush();
-                                socket.close();
-                                serverSocket.close();
-                                System.out.println("Identity Not Confirmed");
-                                System.out.println("Press Enter to continue...");
-                                System.exit(0);
+                                messageState = 5;
+                                return;
                             }
                         }
-                        else if(receiveMode == 2)
+                        else if(messageState == 4)
                         {
                             // Receiver receives and displays the message
                             String receivedEncryptedMessage = reader.readLine();
                             // System.out.println("REncrypted Message: " + receivedEncryptedMessage);
-                            // decrypt the message using users private key
-                            receivedEncryptedMessage = decrypt(receivedEncryptedMessage, privateKey);
-                            // System.out.println("Encrypted Message: " + receivedMessage);
-                            //decrypt the message using senders public key
-                            String receivedMessage = decrypt(receivedEncryptedMessage, senderPublicKey);
+                            // decrypt the message using symmetric key
+                            String receivedMessage = decryptData(symmetricKey, receivedEncryptedMessage);
+
+                            // display the message
                             System.out.println(senderNickName+": " + receivedMessage);
 
                             // Break the loop if the sender enters "exit"
@@ -362,11 +393,6 @@ public class Peer {
                                 serverSocket.close();
                                 return;
                             }
-                        }
-                        else
-                        {
-                            System.out.println("Invalid receive mode!");
-                            System.exit(0);
                         }
                     }
                 } catch (SocketException e) {
@@ -381,36 +407,41 @@ public class Peer {
 
             receiverThread.start();
 
-            int sendMode = 0; // 0 for waiting for identity
-            // 1 for confirm the identity using encrypted message
-            // 2 for started chatting
             while (socket.isConnected()) {
-                if(sendMode == 0)
+                if(messageState == 0)
                 {
                     writer.write(nickName + "\n");
                     writer.flush();
-                    sendMode = 1;
+                    messageState = 1;
                 }
-                else if(sendMode == 1)
+                else if(messageState == 2)
                 {
-                    // Confirm the identity
-                    String confirmMessage = nickName;
-                    writer.write(encrypt(confirmMessage, privateKey) + "\n");
-                    writer.flush();
-                    sendMode = 2;
+                    // generate symmetric key
+                    symmetricKey = generateSymmetricKey();
+                    // encrypt the symmetric key using senders public key
+                    byte[] encryptedSymmetricKey = encryptSymmetricKey(symmetricKey, senderPublicKey);
+                    // sign the encrypted symmetric key using users private key
+                    byte[] signature = sign(encryptedSymmetricKey, privateKey);
+
+                    // send encrypted symmetric key + signed encrypted symmetric key
+                    DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+                    dos.writeInt(encryptedSymmetricKey.length);
+                    dos.write(encryptedSymmetricKey);
+                    dos.writeInt(signature.length);
+                    dos.write(signature);
+                    dos.flush();
+
+                    messageState = 3;
                 }
-                else if(sendMode == 2)
+                else if(messageState == 4)
                 {
                     // wait for confirm other user identity
                     if(senderPublicKey != null)
                     {
                         // Sender sends a message
                         String message = consoleReader.readLine();
-                        // encrypt the message using users private key
-                        String encryptedMessage = encrypt(message, privateKey);
-                        // encrypt the message using senders public key
-                        PublicKey receiverPublicKey = senderPublicKey;
-                        encryptedMessage = encrypt(encryptedMessage, receiverPublicKey);
+                        // encrypt the message using symmetric key
+                        String encryptedMessage = encryptData(symmetricKey, message);
                         writer.write(encryptedMessage + "\n");
                         writer.flush();
 
@@ -426,10 +457,13 @@ public class Peer {
                         }
                     }
                 }
-                else
+                else if(messageState == 5)
                 {
-                    System.out.println("Invalid send mode!");
-                    System.exit(0);
+                    // Identity not confirmed
+                    socket.close();
+                    serverSocket.close();
+                    System.out.println("Identity Not Confirmed");
+                    return;
                 }
             }
         } catch (SocketException e) {
@@ -463,7 +497,7 @@ public class Peer {
         try{
             System.out.println("Your Private Key File Path: " + "keys_private/private_key1"+nickName+".pem");
             System.out.println("Your Public Key File Path: " + getPublicKeyFilePath(nickName));
-            publicKey = loadPublicKeyFromFile(getPublicKeyFilePath(nickName));
+            // publicKey = loadPublicKeyFromFile(getPublicKeyFilePath(nickName));
             // System.out.println("Your Public Key: " + publicKey);
             privateKey = loadPrivateKeyFromFile("keys_private/private_key1"+nickName+".pem");
             // System.out.println("Your Private Key: " + privateKey);
