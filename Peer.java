@@ -124,8 +124,9 @@ public class Peer {
             Socket socket = new Socket(senderIpAddress, port);
 
             System.out.print("\033[2J\033[1;1H"); // Clear the screen
+            System.out.println("You are "+ nickName);
             System.out.println("You: Connected to Your Friend!");
-            System.out.println("With " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort() + "\n");
+            System.out.println("Friend's IP " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort() + "\n");
 
             // Communication logic
             BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
@@ -136,7 +137,7 @@ public class Peer {
                 // 1 for check the identity
                 // 2 for started chatting
                 String senderNickName = "Unknown";
-                PublicKey senderPublicKey;
+                PublicKey senderPublicKey = null;
                 try {
                     while (socket.isConnected()) {
                         if(receiveMode == 0)
@@ -159,7 +160,9 @@ public class Peer {
                                 // Identity confirmed
                                 // writer.write("Identity Confirmed" + "\n");
                                 // writer.flush();
-                                System.out.println("Identity Confirmed");
+                                System.out.println("Identity Confirmed of " + senderNickName + "!");
+                                System.out.println("Encrypted");
+                                System.out.println("---------------------------------------\n");
                                 receiveMode = 2;
                             }
                             else
@@ -177,7 +180,12 @@ public class Peer {
                         else if(receiveMode == 2)
                         {
                             // You receives and displays the message
-                            String receivedMessage = reader.readLine();
+                            String receivedEncryptedMessage = reader.readLine();
+                            // System.out.println("Encrypted Message: " + receivedEncryptedMessage);
+                            //todo: decrypt the message using users private key
+                            // String receivedMessage = decrypt(receivedEncryptedMessage, privateKey);
+                            //decrypt the message using senders public key
+                            String receivedMessage = decrypt(receivedEncryptedMessage, senderPublicKey);
                             System.out.println(senderNickName+": " + receivedMessage);
 
                             // Break the loop if the Sender enters "exit"
@@ -224,8 +232,12 @@ public class Peer {
                 {
                     // You sends a message
                     String message = consoleReader.readLine();
+                    //encrypt the message using users private key
+                    String encryptedMessage = encrypt(message, privateKey);
+                    //todo: encrypt the message using senders public key
+                    // String encryptedMessage = encrypt(message, publicKey);
 
-                    writer.write(message + "\n");
+                    writer.write(encryptedMessage + "\n");
                     writer.flush();
 
                     System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
@@ -270,8 +282,9 @@ public class Peer {
 
             Socket socket = serverSocket.accept(); // Wait for User B to connect
             System.out.print("\033[2J\033[1;1H"); // Clear the screen
-            System.out.println("Your: Connection established!");
-            System.out.println("With " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort()+ "\n");
+            System.out.println("You are "+ nickName);
+            System.out.println("Your Connection established!");
+            System.out.println("Friend's IP " + socket.getInetAddress().getHostAddress() + ":" + socket.getPort()+ "\n");
 
 
             // Communication logic
@@ -282,7 +295,7 @@ public class Peer {
             Thread receiverThread = new Thread(() -> {
                 int receiveMode = 0; // 0 for waiting for identity
                 String senderNickName = "Unknown";
-                PublicKey senderPublicKey;
+                PublicKey senderPublicKey = null;
                 // 1 for check the identity
                 // 2 for started chatting
                 try {
@@ -306,7 +319,9 @@ public class Peer {
                                 // Identity confirmed
                                 // writer.write("Identity Confirmed" + "\n");
                                 // writer.flush();
-                                System.out.println("Identity Confirmed");
+                                System.out.println("Identity Confirmed of " + senderNickName + "!");
+                                System.out.println("Encrypted");
+                                System.out.println("---------------------------------------\n");
                                 receiveMode = 2;
                             }
                             else
@@ -324,7 +339,12 @@ public class Peer {
                         else if(receiveMode == 2)
                         {
                             // Receiver receives and displays the message
-                            String receivedMessage = reader.readLine();
+                            String receivedEncryptedMessage = reader.readLine();
+                            // System.out.println("Encrypted Message: " + receivedEncryptedMessage);
+                            //todo: decrypt the message using users private key
+                            // String receivedMessage = decrypt(receivedEncryptedMessage, privateKey);
+                            //decrypt the message using senders public key
+                            String receivedMessage = decrypt(receivedEncryptedMessage, senderPublicKey);
                             System.out.println(senderNickName+": " + receivedMessage);
 
                             // Break the loop if the sender enters "exit"
@@ -376,7 +396,11 @@ public class Peer {
                 {
                     // Sender sends a message
                     String message = consoleReader.readLine();
-                    writer.write(message + "\n");
+                    //encrypt the message using users private key
+                    String encryptedMessage = encrypt(message, privateKey);
+                    //todo: encrypt the message using senders public key
+                    // String encryptedMessage = encrypt(message, publicKey);
+                    writer.write(encryptedMessage + "\n");
                     writer.flush();
 
                     System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
