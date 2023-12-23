@@ -2,6 +2,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.security.Key;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.security.PublicKey;
@@ -17,6 +18,7 @@ public class Peer {
     private static String nickName="user"+(int)(Math.random()*1000);
     private static PublicKey publicKey;
     private static PrivateKey privateKey;
+    private static volatile PublicKey senderPublicKey = null;
     final static BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
 
     private static String getPublicKeyFilePath(String nickName) throws IOException {
@@ -41,7 +43,7 @@ public class Peer {
     }
 
     // Encrypt a message using a private key
-    private static String encrypt(String message, PrivateKey privateKey) throws Exception {
+    private static String encrypt(String message, Key privateKey) throws Exception {
         Cipher cipher = Cipher.getInstance("RSA");
         cipher.init(Cipher.ENCRYPT_MODE, privateKey);
         byte[] encryptedBytes = cipher.doFinal(message.getBytes());
@@ -49,7 +51,7 @@ public class Peer {
     }
 
     // Decrypt a message using a public key
-    private static String decrypt(String encryptedMessage, PublicKey publicKey) throws Exception {
+    private static String decrypt(String encryptedMessage, Key publicKey) throws Exception {
         Cipher cipher = Cipher.getInstance("RSA");
         cipher.init(Cipher.DECRYPT_MODE, publicKey);
         byte[] encryptedBytes = Base64.getDecoder().decode(encryptedMessage);
@@ -137,7 +139,6 @@ public class Peer {
                 // 1 for check the identity
                 // 2 for started chatting
                 String senderNickName = "Unknown";
-                PublicKey senderPublicKey = null;
                 try {
                     while (socket.isConnected()) {
                         if(receiveMode == 0)
@@ -181,9 +182,10 @@ public class Peer {
                         {
                             // You receives and displays the message
                             String receivedEncryptedMessage = reader.readLine();
-                            // System.out.println("Encrypted Message: " + receivedEncryptedMessage);
-                            //todo: decrypt the message using users private key
-                            // String receivedMessage = decrypt(receivedEncryptedMessage, privateKey);
+                            // System.out.println("REncrypted Message: " + receivedEncryptedMessage);
+                            //decrypt the message using users private key
+                            receivedEncryptedMessage = decrypt(receivedEncryptedMessage, privateKey);
+                            // System.out.println("Encrypted Message: " + receivedMessage);
                             //decrypt the message using senders public key
                             String receivedMessage = decrypt(receivedEncryptedMessage, senderPublicKey);
                             System.out.println(senderNickName+": " + receivedMessage);
@@ -230,24 +232,29 @@ public class Peer {
                 }
                 else if(sendMode == 2)
                 {
-                    // You sends a message
-                    String message = consoleReader.readLine();
-                    //encrypt the message using users private key
-                    String encryptedMessage = encrypt(message, privateKey);
-                    //todo: encrypt the message using senders public key
-                    // String encryptedMessage = encrypt(message, publicKey);
+                    // wait for confirm other user identity
+                    if(senderPublicKey != null)
+                    {
+                        // You sends a message
+                        String message = consoleReader.readLine();
+                        //encrypt the message using users private key
+                        String encryptedMessage = encrypt(message, privateKey);
+                        //encrypt the message using senders public key
+                        PublicKey receiverPublicKey = senderPublicKey;
+                        encryptedMessage = encrypt(encryptedMessage, receiverPublicKey);
 
-                    writer.write(encryptedMessage + "\n");
-                    writer.flush();
+                        writer.write(encryptedMessage + "\n");
+                        writer.flush();
 
-                    System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
-                    System.out.println("You: " + message);
+                        System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
+                        System.out.println("You: " + message);
 
-                    // Break the loop if you enters "exit"
-                    if ("exit".equalsIgnoreCase(message.trim())) {
-                        System.out.println("You: Exiting chat...");
-                        socket.close();
-                        return;
+                        // Break the loop if you enters "exit"
+                        if ("exit".equalsIgnoreCase(message.trim())) {
+                            System.out.println("You: Exiting chat...");
+                            socket.close();
+                            return;
+                        }
                     }
                 }
                 else
@@ -295,7 +302,6 @@ public class Peer {
             Thread receiverThread = new Thread(() -> {
                 int receiveMode = 0; // 0 for waiting for identity
                 String senderNickName = "Unknown";
-                PublicKey senderPublicKey = null;
                 // 1 for check the identity
                 // 2 for started chatting
                 try {
@@ -340,9 +346,10 @@ public class Peer {
                         {
                             // Receiver receives and displays the message
                             String receivedEncryptedMessage = reader.readLine();
-                            // System.out.println("Encrypted Message: " + receivedEncryptedMessage);
-                            //todo: decrypt the message using users private key
-                            // String receivedMessage = decrypt(receivedEncryptedMessage, privateKey);
+                            // System.out.println("REncrypted Message: " + receivedEncryptedMessage);
+                            // decrypt the message using users private key
+                            receivedEncryptedMessage = decrypt(receivedEncryptedMessage, privateKey);
+                            // System.out.println("Encrypted Message: " + receivedMessage);
                             //decrypt the message using senders public key
                             String receivedMessage = decrypt(receivedEncryptedMessage, senderPublicKey);
                             System.out.println(senderNickName+": " + receivedMessage);
@@ -394,24 +401,29 @@ public class Peer {
                 }
                 else if(sendMode == 2)
                 {
-                    // Sender sends a message
-                    String message = consoleReader.readLine();
-                    //encrypt the message using users private key
-                    String encryptedMessage = encrypt(message, privateKey);
-                    //todo: encrypt the message using senders public key
-                    // String encryptedMessage = encrypt(message, publicKey);
-                    writer.write(encryptedMessage + "\n");
-                    writer.flush();
+                    // wait for confirm other user identity
+                    if(senderPublicKey != null)
+                    {
+                        // Sender sends a message
+                        String message = consoleReader.readLine();
+                        // encrypt the message using users private key
+                        String encryptedMessage = encrypt(message, privateKey);
+                        // encrypt the message using senders public key
+                        PublicKey receiverPublicKey = senderPublicKey;
+                        encryptedMessage = encrypt(encryptedMessage, receiverPublicKey);
+                        writer.write(encryptedMessage + "\n");
+                        writer.flush();
 
-                    System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
-                    System.out.println("You: " + message);
+                        System.out.print("\033[1A\033[2K"); // Move cursor up and clear the line
+                        System.out.println("You: " + message);
 
-                    // Break the loop if the user enters "exit"
-                    if ("exit".equalsIgnoreCase(message.trim())) {
-                        System.out.println("You: Exiting chat...");
-                        socket.close();
-                        serverSocket.close();
-                        return;
+                        // Break the loop if the user enters "exit"
+                        if ("exit".equalsIgnoreCase(message.trim())) {
+                            System.out.println("You: Exiting chat...");
+                            socket.close();
+                            serverSocket.close();
+                            return;
+                        }
                     }
                 }
                 else
