@@ -22,12 +22,20 @@ public class Peer {
 
     private static String nickName="user"+(int)(Math.random()*1000);
     // private static PublicKey publicKey;
-    private static PrivateKey privateKey;
+    private static PrivateKey privateKey = null;
     private static volatile PublicKey senderPublicKey = null;
     private static volatile SecretKey symmetricKey = null;
     private static volatile int messageState = 0;
     private static volatile String senderNickName = "Unknown";
     final static BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
+
+    private static void initializeConnection()
+    {
+        senderPublicKey = null;
+        symmetricKey = null;
+        messageState = 0;
+        senderNickName = "Unknown";
+    }
 
     private static String getPublicKeyFilePath(String nickName) throws IOException {
         String filePath = "keyStore.txt";
@@ -518,6 +526,7 @@ public class Peer {
         }
 
         while(true) {
+            initializeConnection();
             System.out.println("What do you want to do?");
 
             try{
