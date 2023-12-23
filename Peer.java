@@ -1,11 +1,11 @@
 import java.io.*;
 import java.net.*;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
@@ -15,6 +15,8 @@ import javax.crypto.Cipher;
 public class Peer {
 
     private static String nickName="user"+(int)(Math.random()*1000);
+    private static PublicKey publicKey;
+    private static PrivateKey privateKey;
     final static BufferedReader consoleReader = new BufferedReader(new InputStreamReader(System.in));
 
     private static String getPublicKeyFilePath(String nickName) throws IOException {
@@ -34,45 +36,63 @@ public class Peer {
         }
 
         reader.close();
-        return null;
+        throw new IOException("No public key found for this nickname!");
 
     }
 
-    // Encrypt a message using a public key
-    private static String encrypt(String message, PublicKey publicKey) throws Exception {
+    // Encrypt a message using a private key
+    private static String encrypt(String message, PrivateKey privateKey) throws Exception {
         Cipher cipher = Cipher.getInstance("RSA");
-        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+        cipher.init(Cipher.ENCRYPT_MODE, privateKey);
         byte[] encryptedBytes = cipher.doFinal(message.getBytes());
         return Base64.getEncoder().encodeToString(encryptedBytes);
     }
 
-    // Decrypt a message using a private key
-    private static String decrypt(String encryptedMessage, PrivateKey privateKey) throws Exception {
+    // Decrypt a message using a public key
+    private static String decrypt(String encryptedMessage, PublicKey publicKey) throws Exception {
         Cipher cipher = Cipher.getInstance("RSA");
-        cipher.init(Cipher.DECRYPT_MODE, privateKey);
+        cipher.init(Cipher.DECRYPT_MODE, publicKey);
         byte[] encryptedBytes = Base64.getDecoder().decode(encryptedMessage);
         byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
         return new String(decryptedBytes);
     }
 
     // Load a private key from a file
-    private static PrivateKey loadPrivateKeyFromFile(String filePath) throws Exception {
-        Path path = Paths.get(filePath);
-        byte[] keyBytes = Files.readAllBytes(path);
+    private static PrivateKey loadPrivateKeyFromFile(String filePath) throws Exception, InvalidKeySpecException {
+        File file = new File(filePath);
+        String key = new String(Files.readAllBytes(file.toPath()), Charset.defaultCharset());
 
-        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
+        String privateKeyPEM = key
+        .replace("-----BEGIN PRIVATE KEY-----", "")
+        .replaceAll(System.lineSeparator(), "")
+        .replace("-----END PRIVATE KEY-----", "");
+
+        // byte[] encoded = Base64.decodeBase64(privateKeyPEM);
+        // byte[] encoded = Base64.getDecoder().decode(privateKeyPEM);
+        byte[] encoded = Base64.getMimeDecoder().decode(privateKeyPEM);
+
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        return keyFactory.generatePrivate(spec);
+        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encoded);
+        return keyFactory.generatePrivate(keySpec);
     }
 
     // Load a public key from a file
     private static PublicKey loadPublicKeyFromFile(String filePath) throws Exception {
-        Path path = Paths.get(filePath);
-        byte[] keyBytes = Files.readAllBytes(path);
+        File file = new File(filePath);
+        String key = new String(Files.readAllBytes(file.toPath()), Charset.defaultCharset());
 
-        X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
+        String publicKeyPEM = key
+        .replace("-----BEGIN PUBLIC KEY-----", "")
+        .replaceAll(System.lineSeparator(), "")
+        .replace("-----END PUBLIC KEY-----", "");
+
+        // byte[] encoded = Base64.decodeBase64(publicKeyPEM);
+        // byte[] encoded = Base64.getDecoder().decode(publicKeyPEM);
+        byte[] encoded = Base64.getMimeDecoder().decode(publicKeyPEM);
+
         KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        return keyFactory.generatePublic(spec);
+        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(encoded);
+        return keyFactory.generatePublic(keySpec);
     }
 
     private static String getIpAddress(int ipVersion) {
@@ -113,20 +133,48 @@ public class Peer {
 
             Thread receiveThread = new Thread(() -> {
                 int receiveMode = 0; // 0 for waiting for identity
+                // 1 for check the identity
+                // 2 for started chatting
                 String senderNickName = "Unknown";
+                PublicKey senderPublicKey;
                 try {
                     while (socket.isConnected()) {
                         if(receiveMode == 0)
                         {
                             senderNickName = reader.readLine();
-                            // String publicKeyFilePath = getPublicKeyFilePath(senderNickName);
-                            // PublicKey publicKey = loadPublicKeyFromFile(publicKeyFilePath);
-                            // String encryptedMessage = reader.readLine();
-                            // String decryptedMessage = decrypt(encryptedMessage, publicKey);
-                            // System.out.println("Friend: " + decryptedMessage);
                             receiveMode = 1;
                         }
                         else if(receiveMode == 1)
+                        {
+                            String encryptedMessage = reader.readLine();
+                            
+                            // get sender's public key
+                            senderPublicKey = loadPublicKeyFromFile(getPublicKeyFilePath(senderNickName));
+
+                            // Check the identity
+                            String decryptedMessage = decrypt(encryptedMessage, senderPublicKey);
+
+                            if(decryptedMessage.equals(senderNickName))
+                            {
+                                // Identity confirmed
+                                // writer.write("Identity Confirmed" + "\n");
+                                // writer.flush();
+                                System.out.println("Identity Confirmed");
+                                receiveMode = 2;
+                            }
+                            else
+                            {
+                                // Identity not confirmed
+                                // writer.write("Identity Not Confirmed" + "\n");
+                                // writer.flush();
+                                socket.close();
+                                System.out.println("Identity Not Confirmed");
+                                System.out.println("Press Enter to continue...");
+                                System.exit(0);
+                            }
+                            
+                        }
+                        else if(receiveMode == 2)
                         {
                             // You receives and displays the message
                             String receivedMessage = reader.readLine();
@@ -146,13 +194,16 @@ public class Peer {
                     return;
                 } catch (IOException e) {
                     e.printStackTrace();
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
             });
 
             receiveThread.start();
 
             int sendMode = 0; // 0 for give identity using nickname
-            // 1 for started chatting
+            // 1 for confirm the identity using encrypted message
+            // 2 for started chatting
             while (socket.isConnected()) {
                 
                 if(sendMode == 0)
@@ -162,6 +213,14 @@ public class Peer {
                     sendMode = 1;
                 }
                 else if(sendMode == 1)
+                {
+                    // Confirm the identity
+                    String confirmMessage = nickName;
+                    writer.write(encrypt(confirmMessage, privateKey) + "\n");
+                    writer.flush();
+                    sendMode = 2;
+                }
+                else if(sendMode == 2)
                 {
                     // You sends a message
                     String message = consoleReader.readLine();
@@ -189,6 +248,8 @@ public class Peer {
             // System.out.println("Friend: Exiting chat...");
             return;
         } catch (IOException e) {
+            e.printStackTrace();
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
@@ -221,20 +282,46 @@ public class Peer {
             Thread receiverThread = new Thread(() -> {
                 int receiveMode = 0; // 0 for waiting for identity
                 String senderNickName = "Unknown";
-                // 1 for started chatting
+                PublicKey senderPublicKey;
+                // 1 for check the identity
+                // 2 for started chatting
                 try {
                     while (socket.isConnected()) {
                         if(receiveMode == 0)
                         {
                             senderNickName = reader.readLine();
-                            // String publicKeyFilePath = getPublicKeyFilePath(senderNickName);
-                            // PublicKey publicKey = loadPublicKeyFromFile(publicKeyFilePath);
-                            // String encryptedMessage = reader.readLine();
-                            // String decryptedMessage = decrypt(encryptedMessage, publicKey);
-                            // System.out.println("Friend: " + decryptedMessage);
                             receiveMode = 1;
                         }
                         else if(receiveMode == 1)
+                        {
+                            String encryptedMessage = reader.readLine();
+                            
+                            // get sender's public key
+                            senderPublicKey = loadPublicKeyFromFile(getPublicKeyFilePath(senderNickName));
+
+                            // Check the identity
+                            String decryptedMessage = decrypt(encryptedMessage, senderPublicKey);
+                            if(decryptedMessage.equals(senderNickName))
+                            {
+                                // Identity confirmed
+                                // writer.write("Identity Confirmed" + "\n");
+                                // writer.flush();
+                                System.out.println("Identity Confirmed");
+                                receiveMode = 2;
+                            }
+                            else
+                            {
+                                // Identity not confirmed
+                                // writer.write("Identity Not Confirmed" + "\n");
+                                // writer.flush();
+                                socket.close();
+                                serverSocket.close();
+                                System.out.println("Identity Not Confirmed");
+                                System.out.println("Press Enter to continue...");
+                                System.exit(0);
+                            }
+                        }
+                        else if(receiveMode == 2)
                         {
                             // Receiver receives and displays the message
                             String receivedMessage = reader.readLine();
@@ -260,13 +347,16 @@ public class Peer {
                     return;
                 } catch (IOException e) {
                     e.printStackTrace();
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
             });
 
             receiverThread.start();
 
             int sendMode = 0; // 0 for waiting for identity
-            // 1 for started chatting
+            // 1 for confirm the identity using encrypted message
+            // 2 for started chatting
             while (socket.isConnected()) {
                 if(sendMode == 0)
                 {
@@ -275,6 +365,14 @@ public class Peer {
                     sendMode = 1;
                 }
                 else if(sendMode == 1)
+                {
+                    // Confirm the identity
+                    String confirmMessage = nickName;
+                    writer.write(encrypt(confirmMessage, privateKey) + "\n");
+                    writer.flush();
+                    sendMode = 2;
+                }
+                else if(sendMode == 2)
                 {
                     // Sender sends a message
                     String message = consoleReader.readLine();
@@ -303,26 +401,51 @@ public class Peer {
             return;
         } catch (IOException e) {
             e.printStackTrace();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
     public static void main(String[] args) {
 
         System.out.println("Hello From Chat App!");
         System.out.println("Your Nickname is " + nickName);
-        System.out.println("Need to change your nickname? [Y/N]");
+        System.out.print("Need to change your nickname? [Y/N]");
         try{
             String answer = consoleReader.readLine();
-            if(answer.equalsIgnoreCase("Y")){
-                System.out.println("Enter your new nickname: ");
+            if(answer.equalsIgnoreCase("Y") || answer.equalsIgnoreCase("")){
+                System.out.print("Enter your new nickname: ");
                 nickName = consoleReader.readLine();
             }
             
         }catch (IOException e) {
             e.printStackTrace();   
+            System.exit(0);
         }
         System.out.print("\033[2J\033[1;1H"); // Clear the screen
         System.out.println("Hello " + nickName + "!");
-        System.out.println("\n");
+
+        try{
+            System.out.println("Your Private Key File Path: " + "keys_private/private_key1"+nickName+".pem");
+            System.out.println("Your Public Key File Path: " + getPublicKeyFilePath(nickName));
+            publicKey = loadPublicKeyFromFile(getPublicKeyFilePath(nickName));
+            // System.out.println("Your Public Key: " + publicKey);
+            privateKey = loadPrivateKeyFromFile("keys_private/private_key1"+nickName+".pem");
+            // System.out.println("Your Private Key: " + privateKey);
+            System.out.println("\n");
+        }
+        catch (IOException e) {
+            System.out.println("No proper keys found for this nickname!");
+            System.exit(0);
+        }
+        catch (InvalidKeySpecException e) {
+            System.out.println("Invalid key spec!");
+            e.printStackTrace();
+            System.exit(0);
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+            System.exit(0);
+        }
 
         while(true) {
             System.out.println("What do you want to do?");
