@@ -21,6 +21,7 @@ import javax.crypto.spec.SecretKeySpec;
 public class Peer {
 
     private static String nickName="user"+(int)(Math.random()*1000);
+    private static String macAddress = null;
     // private static PublicKey publicKey;
     private static PrivateKey privateKey = null;
     private static volatile PublicKey senderPublicKey = null;
@@ -35,6 +36,69 @@ public class Peer {
         symmetricKey = null;
         messageState = 0;
         senderNickName = "Unknown";
+    }
+
+    private static String getMacAddressWindows() throws Exception {
+        // Implement code to get MAC address on Windows
+        // Example: Execute 'ipconfig' command C:\Windows\System32
+        return executeCommand( "ipconfig","/all");
+    }
+
+    private static String getMacAddressLinux() throws Exception {
+        // Implement code to get MAC address on Linux
+        // Example: Execute 'ifconfig' command
+        return executeCommand("ifconfig",null);
+    }
+
+    private static String executeCommand(String command, String args) throws Exception {
+        
+            ProcessBuilder processBuilder;
+            if(args == null)
+            {
+                processBuilder = new ProcessBuilder(command);
+            }
+            else
+            {
+                processBuilder = new ProcessBuilder(command, args);
+            }
+            Process process = processBuilder.start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+
+            String line;
+            boolean wifiAdapterFound = false;
+            while ((line = reader.readLine()) != null) {
+                if (line.contains("Wireless") && line.contains("Wi-Fi")) {
+                    wifiAdapterFound = true;
+                }
+                
+                if (wifiAdapterFound && line.contains("Physical Address")) {
+                    // Assuming MAC address is in the format xx-xx-xx-xx-xx-xx
+                    String[] parts = line.split("\\s+");
+                    for (String part : parts) {
+                        if (part.matches("..-..-..-..-..-..")) {
+                            return part;
+                        }
+                    }
+                }
+            }
+            
+            reader.close();
+            System.out.println("WiFi MAC address not found!");
+            return null;
+    }
+
+    private static String getMacAddress() throws Exception{
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.contains("win")) {
+            return getMacAddressWindows();
+
+        } else if (os.contains("nux") || os.contains("nix")) {
+            return getMacAddressLinux();
+
+        } else {
+            System.out.println("Unsupported OS!");
+            return null;
+        }
     }
 
     private static String getPublicKeyFilePath(String nickName) throws IOException {
@@ -485,7 +549,18 @@ public class Peer {
     }
     public static void main(String[] args) {
 
+        try{
+            macAddress = getMacAddress();
+            if(macAddress == null)
+            {
+                System.exit(0);
+            }
+        }catch (Exception e) {
+            e.printStackTrace();
+            System.exit(0);
+        }
         System.out.println("Hello From Chat App!");
+        System.out.println("Your MAC Address is " + macAddress);
         System.out.println("Your Nickname is " + nickName);
         System.out.print("Need to change your nickname? [Y/N]");
         try{
